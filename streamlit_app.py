@@ -26,6 +26,9 @@ def kind_rank(k: str) -> int:
 if "graph" not in st.session_state:
     st.session_state.graph = {"nodes": [], "edges": []}
 
+if "selected_node" not in st.session_state:
+    st.session_state.selected_node = None
+
 graph = st.session_state.graph
 
 # ---------------------------
@@ -54,7 +57,6 @@ with layout_col3:
         st.success("Probabilities auto-computed.")
         st.rerun()
 
-# Debug toggle
 show_debug = st.toggle("🔍 Debug graph", value=False)
 
 # ---------------------------
@@ -161,6 +163,24 @@ if show_debug:
     st.code(json.dumps(graph, indent=2))
 
 # ---------------------------
+# Delete Selected Node
+# ---------------------------
+col1, col2 = st.columns([1, 3])
+with col1:
+    if st.button("🗑 Delete Selected Node", use_container_width=True):
+        if st.session_state.selected_node:
+            node_id = st.session_state.selected_node
+            graph["nodes"] = [n for n in graph["nodes"] if n["id"] != node_id]
+            graph["edges"] = [
+                e for e in graph["edges"]
+                if e["source"] != node_id and e["target"] != node_id
+            ]
+            st.session_state.selected_node = None
+            st.rerun()
+        else:
+            st.warning("No node selected on the canvas.")
+
+# ---------------------------
 # Canvas Visualization
 # ---------------------------
 st.markdown("### Canvas")
@@ -220,7 +240,6 @@ vis_html = """
   </div>
   <button id="exportBtn">Export PNG</button>
 
-  <!-- Hidden JSON data -->
   <script id="graphData" type="application/json">{graph_json}</script>
   <script>
     const graph = JSON.parse(document.getElementById('graphData').textContent);
@@ -275,6 +294,19 @@ vis_html = """
 
     const network = new vis.Network(container, data, options);
     network.fit();
+
+    // Track selected node and send to Streamlit
+    network.on("selectNode", function(params) {
+      const selected = params.nodes[0] || null;
+      const streamlitEvent = window.parent;
+      if (streamlitEvent) {
+        window.parent.postMessage({type: "streamlit:setComponentValue", value: selected}, "*");
+      }
+    });
+
+    network.on("deselectNode", function() {
+      window.parent.postMessage({type: "streamlit:setComponentValue", value: null}, "*");
+    });
 
     document.getElementById('zoomIn').addEventListener('click', () => {
       network.moveTo({ scale: network.getScale() * 1.2 });
