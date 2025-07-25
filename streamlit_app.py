@@ -4,7 +4,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from utils import graph_ops
 
-st.set_page_config(page_title="Decision Tree – Freeform Builder", layout="wide")
+st.set_page_config(page_title="Decision Tree App", layout="wide")
 st.title("🌳 Decision Tree – Freeform Builder")
 
 # ---------------------------
@@ -24,49 +24,25 @@ if "graph" not in st.session_state:
 
 graph = st.session_state.graph
 
-# Provide a visible starting point the first time
-if not graph["nodes"]:
-    graph["nodes"] = [
-        {"id": "1", "data": {"label": "Start"}, "kind": "event"},
-        {"id": "2", "data": {"label": "Decision"}, "kind": "decision"},
-        {"id": "3", "data": {"label": "Result"}, "kind": "result"},
-    ]
-    graph["edges"] = [
-        {"id": "e1", "source": "1", "target": "2", "label": "Next"},
-        {"id": "e2", "source": "2", "target": "3", "label": "Outcome"},
-    ]
-
 # ---------------------------
-# Toolbar (no JSON import/export)
+# Toolbar (Top Controls)
 # ---------------------------
 st.markdown("### Actions")
-c1, c2, c3 = st.columns(3)
+toolbar_cols = st.columns(3)
 
-with c1:
-    if st.button(
-        "🗑 Clear Canvas",
-        use_container_width=True,
-        help="Remove all nodes and edges from the canvas.",
-    ):
+with toolbar_cols[0]:
+    if st.button("🗑 Clear Canvas", use_container_width=True):
         st.session_state.graph = {"nodes": [], "edges": []}
         st.rerun()
 
-with c2:
-    if st.button(
-        "⚙ Auto-Compute Probabilities",
-        use_container_width=True,
-        help="Evenly distribute probabilities on decision nodes if none are set.",
-    ):
+with toolbar_cols[1]:
+    if st.button("⚙ Auto-Compute", use_container_width=True):
         graph_ops.auto_compute_probabilities(graph)
         st.success("Probabilities auto-computed.")
         st.rerun()
 
-with c3:
-    show_debug = st.toggle(
-        "🔍 Debug graph",
-        value=False,
-        help="Show the raw graph dict stored in session state.",
-    )
+with toolbar_cols[2]:
+    show_debug = st.toggle("🔍 Debug graph", value=False)
 
 # ---------------------------
 # Sidebar – Node & Edge Management
@@ -79,10 +55,12 @@ with st.sidebar.expander("➕ Add Node", expanded=True):
         node_type = st.selectbox("Type", ["event", "decision", "result"])
         submitted = st.form_submit_button("Add Node")
         if submitted and new_label.strip():
-            graph["nodes"].append(
-                {"id": new_node_id(), "data": {"label": new_label}, "kind": node_type}
-            )
-            st.rerun()
+            graph["nodes"].append({
+                "id": new_node_id(),
+                "data": {"label": new_label},
+                "kind": node_type
+            })
+            st.rerun()  # Force refresh of canvas
 
 st.sidebar.header("🔗 Edge Management")
 if len(graph["nodes"]) >= 2:
@@ -108,16 +86,14 @@ if len(graph["nodes"]) >= 2:
                 if source == target:
                     st.warning("Cannot connect a node to itself.")
                 else:
-                    graph["edges"].append(
-                        {
-                            "id": new_edge_id(),
-                            "source": source,
-                            "target": target,
-                            "label": edge_label or None,
-                            "data": {"prob": edge_prob} if edge_prob_enabled else {},
-                        }
-                    )
-                    st.rerun()
+                    graph["edges"].append({
+                        "id": new_edge_id(),
+                        "source": source,
+                        "target": target,
+                        "label": edge_label or None,
+                        "data": {"prob": edge_prob} if edge_prob_enabled else {}
+                    })
+                    st.rerun()  # Force refresh of canvas
 
 # ---------------------------
 # Validation Warnings
@@ -132,15 +108,14 @@ if warnings:
 # Debug (optional)
 # ---------------------------
 if show_debug:
-    st.markdown("#### Raw graph")
+    st.markdown("#### Raw Graph")
     st.code(json.dumps(graph, indent=2))
 
 # ---------------------------
-# Canvas Visualization (with mini-map & zoom controls)
+# Canvas Visualization
 # ---------------------------
 st.markdown("### Canvas")
 
-# Safely embed the Python dict into JS
 graph_json = json.dumps(graph).replace("\\", "\\\\").replace("'", "\\'")
 
 vis_html = """
@@ -170,21 +145,7 @@ vis_html = """
       cursor: pointer;
       font-size: 12px;
     }
-    .btn:hover {
-      background: #1e40af;
-    }
-    #miniMap {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
-      width: 150px;
-      height: 100px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      background: white;
-      overflow: hidden;
-      z-index: 998;
-    }
+    .btn:hover { background: #1e40af; }
     #exportBtn {
       position: absolute;
       top: 10px;
@@ -203,16 +164,12 @@ vis_html = """
 </head>
 <body>
   <div id="network"></div>
-
   <div id="controls">
     <button class="btn" id="zoomIn">+</button>
     <button class="btn" id="zoomOut">-</button>
     <button class="btn" id="fit">Fit</button>
   </div>
-
   <button id="exportBtn">Export PNG</button>
-  <div id="miniMap"></div>
-
   <script>
     const graph = JSON.parse('{graph_json}');
     const nodes = new vis.DataSet(graph.nodes.map(n => ({
@@ -239,40 +196,21 @@ vis_html = """
     const container = document.getElementById('network');
     const data = { nodes, edges };
     const options = {
-      layout: { hierarchical: false },
-      physics: {
-        enabled: true,
-        solver: "forceAtlas2Based",
-        stabilization: { iterations: 120 }
-      },
+      physics: { enabled: true, stabilization: { iterations: 100 } },
       edges: { arrows: { to: { enabled: true } }, smooth: false },
       interaction: { dragView: true, zoomView: true }
     };
-
     const network = new vis.Network(container, data, options);
-    network.fit(); // center on first render
-
-    // Mini-map
-    const miniMapContainer = document.getElementById('miniMap');
-    const miniMap = new vis.Network(miniMapContainer, data, {
-      interaction: { dragNodes: false, dragView: false, zoomView: false },
-      physics: false
-    });
+    network.fit();
 
     // Zoom controls
     document.getElementById('zoomIn').addEventListener('click', () => {
-      const scale = network.getScale();
-      network.moveTo({ scale: scale * 1.2 });
+      network.moveTo({ scale: network.getScale() * 1.2 });
     });
-
     document.getElementById('zoomOut').addEventListener('click', () => {
-      const scale = network.getScale();
-      network.moveTo({ scale: scale / 1.2 });
+      network.moveTo({ scale: network.getScale() / 1.2 });
     });
-
-    document.getElementById('fit').addEventListener('click', () => {
-      network.fit();
-    });
+    document.getElementById('fit').addEventListener('click', () => network.fit());
 
     // Export PNG
     document.getElementById('exportBtn').addEventListener('click', () => {
@@ -288,4 +226,4 @@ vis_html = """
 </html>
 """.replace("{graph_json}", graph_json)
 
-components.html(vis_html, height=650, scrolling=False)
+components.html(vis_html, height=650, scrolling=False, key=str(uuid.uuid4()))
