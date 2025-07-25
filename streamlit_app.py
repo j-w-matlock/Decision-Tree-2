@@ -5,7 +5,7 @@ import streamlit.components.v1 as components
 from utils import graph_ops
 
 st.set_page_config(page_title="Decision Tree App", layout="wide")
-st.title("🌳 Decision Tree – Freeform Builder")
+st.title("🌳 Decision Tree – Freeform Builder (with Mini-map & Zoom Controls)")
 
 # ---------------------------
 # Helpers
@@ -23,6 +23,18 @@ if "graph" not in st.session_state:
     st.session_state.graph = {"nodes": [], "edges": []}
 
 graph = st.session_state.graph
+
+# Add fallback sample graph if empty
+if not graph["nodes"]:
+    graph["nodes"] = [
+        {"id": "1", "data": {"label": "Start"}, "kind": "event"},
+        {"id": "2", "data": {"label": "Decision"}, "kind": "decision"},
+        {"id": "3", "data": {"label": "Result"}, "kind": "result"}
+    ]
+    graph["edges"] = [
+        {"id": "e1", "source": "1", "target": "2", "label": "Next"},
+        {"id": "e2", "source": "2", "target": "3", "label": "Outcome"}
+    ]
 
 # ---------------------------
 # Toolbar (Top Controls)
@@ -127,7 +139,7 @@ if warnings:
 # Canvas Visualization
 # ---------------------------
 st.markdown("### Canvas")
-graph_data = json.dumps(graph)  # Safe JSON for injection
+graph_json = json.dumps(graph)
 
 vis_html = """
 <!DOCTYPE html>
@@ -139,22 +151,60 @@ vis_html = """
   <style>
     html, body { margin: 0; height: 100%; background: #f8fafc; }
     #network { height: 620px; background: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e1; position: relative; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 999;
+      display: flex;
+      gap: 6px;
+    }
+    .btn {
+      padding: 4px 8px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .btn:hover {
+      background: #1e40af;
+    }
+    #miniMap {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      width: 150px;
+      height: 100px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      background: white;
+      overflow: hidden;
+      z-index: 998;
+    }
   </style>
 </head>
 <body>
   <div id="network"></div>
+  <div id="controls">
+    <button class="btn" id="zoomIn">+</button>
+    <button class="btn" id="zoomOut">-</button>
+    <button class="btn" id="fit">Fit</button>
+  </div>
+  <div id="miniMap"></div>
   <script>
-    const graph = JSON.parse({graph_json});
+    const graph = {graph_json};
     const nodes = new vis.DataSet(graph.nodes.map(n => ({
       id: n.id,
       label: n.data.label,
       shape: "box",
-      color: {{
+      color: {
         background: n.kind === "decision" ? "#e6f7eb" :
                     n.kind === "result" ? "#fff1e6" : "#e0ecff",
         border: n.kind === "decision" ? "#16a34a" :
                 n.kind === "result" ? "#f97316" : "#1d4ed8",
-      }},
+      },
       borderWidth: 2,
       margin: 10,
     })));
@@ -175,6 +225,28 @@ vis_html = """
     };
     const network = new vis.Network(container, data, options);
 
+    // Mini-map: A smaller, simplified network
+    const miniMapContainer = document.getElementById('miniMap');
+    const miniMap = new vis.Network(miniMapContainer, data, {
+      interaction: { dragNodes: false, dragView: false, zoomView: false },
+      physics: false
+    });
+
+    // Zoom controls
+    document.getElementById('zoomIn').addEventListener('click', () => {
+      const scale = network.getScale();
+      network.moveTo({ scale: scale * 1.2 });
+    });
+
+    document.getElementById('zoomOut').addEventListener('click', () => {
+      const scale = network.getScale();
+      network.moveTo({ scale: scale / 1.2 });
+    });
+
+    document.getElementById('fit').addEventListener('click', () => {
+      network.fit();
+    });
+
     // Export PNG
     document.getElementById('exportCanvas')?.addEventListener('click', () => {
       html2canvas(container).then(canvas => {
@@ -187,6 +259,6 @@ vis_html = """
   </script>
 </body>
 </html>
-""".replace("{graph_json}", json.dumps(graph_data))
+""".replace("{graph_json}", graph_json)
 
 components.html(vis_html, height=650, scrolling=False)
