@@ -25,7 +25,7 @@ if "graph" not in st.session_state:
 graph = st.session_state.graph
 
 # ---------------------------
-# Toolbar (Top Controls)
+# Toolbar
 # ---------------------------
 st.markdown("### Actions")
 toolbar_cols = st.columns(3)
@@ -60,7 +60,7 @@ with st.sidebar.expander("➕ Add Node", expanded=True):
                 "data": {"label": new_label},
                 "kind": node_type
             })
-            st.rerun()  # Refresh canvas
+            st.rerun()
 
 st.sidebar.header("🔗 Edge Management")
 if len(graph["nodes"]) >= 2:
@@ -93,7 +93,7 @@ if len(graph["nodes"]) >= 2:
                         "label": edge_label or None,
                         "data": {"prob": edge_prob} if edge_prob_enabled else {}
                     })
-                    st.rerun()  # Refresh canvas
+                    st.rerun()
 
 # ---------------------------
 # Validation Warnings
@@ -231,5 +231,6 @@ vis_html = """
 </html>
 """.replace("{graph_json}", graph_json)
 
-# Force new render each time
-components.html(vis_html, height=650, scrolling=False, key=str(uuid.uuid4()))
+# Force canvas refresh by adding a unique comment
+vis_html_with_ts = vis_html + f"<!-- {uuid.uuid4()} -->"
+components.html(vis_html_with_ts, height=650, scrolling=False)
