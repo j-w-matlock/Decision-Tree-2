@@ -60,7 +60,7 @@ with st.sidebar.expander("➕ Add Node", expanded=True):
                 "data": {"label": new_label},
                 "kind": node_type
             })
-            st.rerun()  # Force refresh of canvas
+            st.rerun()  # Refresh canvas
 
 st.sidebar.header("🔗 Edge Management")
 if len(graph["nodes"]) >= 2:
@@ -93,7 +93,7 @@ if len(graph["nodes"]) >= 2:
                         "label": edge_label or None,
                         "data": {"prob": edge_prob} if edge_prob_enabled else {}
                     })
-                    st.rerun()  # Force refresh of canvas
+                    st.rerun()  # Refresh canvas
 
 # ---------------------------
 # Validation Warnings
@@ -116,7 +116,7 @@ if show_debug:
 # ---------------------------
 st.markdown("### Canvas")
 
-graph_json = json.dumps(graph).replace("\\", "\\\\").replace("'", "\\'")
+graph_json = json.dumps(graph)  # Safe JSON
 
 vis_html = """
 <!DOCTYPE html>
@@ -170,8 +170,13 @@ vis_html = """
     <button class="btn" id="fit">Fit</button>
   </div>
   <button id="exportBtn">Export PNG</button>
+
+  <!-- Hidden JSON data -->
+  <script id="graphData" type="application/json">{graph_json}</script>
+
   <script>
-    const graph = JSON.parse('{graph_json}');
+    const graph = JSON.parse(document.getElementById('graphData').textContent);
+
     const nodes = new vis.DataSet(graph.nodes.map(n => ({
       id: n.id,
       label: n.data.label,
@@ -226,4 +231,5 @@ vis_html = """
 </html>
 """.replace("{graph_json}", graph_json)
 
+# Force new render each time
 components.html(vis_html, height=650, scrolling=False, key=str(uuid.uuid4()))
