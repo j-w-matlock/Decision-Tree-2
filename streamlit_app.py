@@ -2,7 +2,7 @@ import json
 import uuid
 import streamlit as st
 import streamlit.components.v1 as components
-from utils import graph_ops  # where we keep validation & auto-probability logic
+from utils import graph_ops
 
 st.set_page_config(page_title="Decision Tree App", layout="wide")
 st.title("🌳 Decision Tree – Freeform Builder")
@@ -124,82 +124,69 @@ if warnings:
         st.warning(w)
 
 # ---------------------------
-# Canvas Visualization (React Flow Component)
+# Canvas Visualization
 # ---------------------------
 st.markdown("### Canvas")
+graph_data = json.dumps(graph)  # Safe JSON for injection
 
-# Prepare JSON for the React Flow component
-canvas_data = json.dumps(graph)
-components.html(
-    f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8" />
-      <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
-      <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-      <style>
-        html, body {{
-          margin: 0;
-          height: 100%;
-          background: #f8fafc;
-        }}
-        #network {{
-          height: 620px;
-          background: #f1f5f9;
-          border-radius: 8px;
-          border: 1px solid #cbd5e1;
-          position: relative;
-        }}
-      </style>
-    </head>
-    <body>
-      <div id="network"></div>
-      <script>
-        const graph = {canvas_data};
-        const nodes = new vis.DataSet(graph.nodes.map(n => ({
-          id: n.id,
-          label: n.data.label,
-          shape: "box",
-          color: {{
-            background: n.kind === "decision" ? "#e6f7eb" :
-                        n.kind === "result" ? "#fff1e6" : "#e0ecff",
-            border: n.kind === "decision" ? "#16a34a" :
-                    n.kind === "result" ? "#f97316" : "#1d4ed8",
-          }},
-          borderWidth: 2,
-          margin: 10,
-        })));
+vis_html = """
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <style>
+    html, body { margin: 0; height: 100%; background: #f8fafc; }
+    #network { height: 620px; background: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e1; position: relative; }
+  </style>
+</head>
+<body>
+  <div id="network"></div>
+  <script>
+    const graph = JSON.parse({graph_json});
+    const nodes = new vis.DataSet(graph.nodes.map(n => ({
+      id: n.id,
+      label: n.data.label,
+      shape: "box",
+      color: {{
+        background: n.kind === "decision" ? "#e6f7eb" :
+                    n.kind === "result" ? "#fff1e6" : "#e0ecff",
+        border: n.kind === "decision" ? "#16a34a" :
+                n.kind === "result" ? "#f97316" : "#1d4ed8",
+      }},
+      borderWidth: 2,
+      margin: 10,
+    })));
 
-        const edges = new vis.DataSet(graph.edges.map(e => ({
-          id: e.id,
-          from: e.source,
-          to: e.target,
-          label: (e.label || "") + (e.data.prob !== undefined ? ` (p=${e.data.prob})` : "")
-        })));
+    const edges = new vis.DataSet(graph.edges.map(e => ({
+      id: e.id,
+      from: e.source,
+      to: e.target,
+      label: (e.label || "") + (e.data.prob !== undefined ? ` (p=${e.data.prob})` : "")
+    })));
 
-        const container = document.getElementById('network');
-        const data = {{ nodes, edges }};
-        const options = {{
-          physics: {{ enabled: true, stabilization: {{ iterations: 100 }} }},
-          edges: {{ arrows: {{ to: {{ enabled: true }} }}, smooth: false }},
-          interaction: {{ dragView: true, zoomView: true }}
-        }};
-        const network = new vis.Network(container, data, options);
+    const container = document.getElementById('network');
+    const data = { nodes, edges };
+    const options = {
+      physics: { enabled: true, stabilization: { iterations: 100 } },
+      edges: { arrows: { to: { enabled: true } }, smooth: false },
+      interaction: { dragView: true, zoomView: true }
+    };
+    const network = new vis.Network(container, data, options);
 
-        // Export PNG
-        document.getElementById('exportCanvas')?.addEventListener('click', () => {{
-          html2canvas(container).then(canvas => {{
-            const link = document.createElement('a');
-            link.download = 'decision_tree.png';
-            link.href = canvas.toDataURL('image/png');
-            link.click();
-          }});
-        }});
-      </script>
-    </body>
-    </html>
-    """,
-    height=650,
-    scrolling=False
-)
+    // Export PNG
+    document.getElementById('exportCanvas')?.addEventListener('click', () => {
+      html2canvas(container).then(canvas => {
+        const link = document.createElement('a');
+        link.download = 'decision_tree.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      });
+    });
+  </script>
+</body>
+</html>
+""".replace("{graph_json}", json.dumps(graph_data))
+
+components.html(vis_html, height=650, scrolling=False)
