@@ -16,6 +16,10 @@ def new_node_id() -> str:
 def new_edge_id() -> str:
     return f"e_{uuid.uuid4().hex[:6]}"
 
+def kind_rank(k: str) -> int:
+    order = {"event": 0, "decision": 1, "result": 2}
+    return order.get(k, 99)
+
 # ---------------------------
 # Session state
 # ---------------------------
@@ -25,27 +29,36 @@ if "graph" not in st.session_state:
 graph = st.session_state.graph
 
 # ---------------------------
-# Toolbar
+# Layout toggle
 # ---------------------------
 st.markdown("### Actions")
-toolbar_cols = st.columns(3)
+layout_col1, layout_col2, layout_col3 = st.columns([1, 1, 2])
 
-with toolbar_cols[0]:
+with layout_col1:
+    mode = st.radio(
+        "Layout",
+        ["Freeform", "Left→Right"],
+        index=0,
+        help="Freeform lets you drag anything anywhere. Left→Right lays it out like a classic decision tree."
+    )
+st.session_state.layout_mode = mode
+
+with layout_col2:
     if st.button("🗑 Clear Canvas", use_container_width=True):
         st.session_state.graph = {"nodes": [], "edges": []}
         st.rerun()
 
-with toolbar_cols[1]:
+with layout_col3:
     if st.button("⚙ Auto-Compute", use_container_width=True):
         graph_ops.auto_compute_probabilities(graph)
         st.success("Probabilities auto-computed.")
         st.rerun()
 
-with toolbar_cols[2]:
-    show_debug = st.toggle("🔍 Debug graph", value=False)
+# Debug toggle
+show_debug = st.toggle("🔍 Debug graph", value=False)
 
 # ---------------------------
-# Sidebar – Node & Edge Management
+# Sidebar – Node Management
 # ---------------------------
 st.sidebar.header("🛠 Node Management")
 
@@ -62,19 +75,34 @@ with st.sidebar.expander("➕ Add Node", expanded=True):
             })
             st.rerun()
 
+# ---------------------------
+# Sidebar – Edge Management
+# ---------------------------
 st.sidebar.header("🔗 Edge Management")
 if len(graph["nodes"]) >= 2:
     with st.sidebar.expander("➕ Add Edge", expanded=True):
         node_labels = {n["id"]: n["data"]["label"] for n in graph["nodes"]}
         with st.form("add_edge_form", clear_on_submit=True):
             source = st.selectbox(
-                "Source", list(node_labels.keys()), format_func=lambda x: node_labels[x]
+                "First node",
+                list(node_labels.keys()),
+                format_func=lambda x: f"{node_labels[x]}  [{next(n['kind'] for n in graph['nodes'] if n['id']==x)}]"
             )
             target = st.selectbox(
-                "Target",
+                "Second node",
                 [n["id"] for n in graph["nodes"] if n["id"] != source],
-                format_func=lambda x: node_labels[x],
+                format_func=lambda x: f"{node_labels[x]}  [{next(n['kind'] for n in graph['nodes'] if n['id']==x)}]"
             )
+
+            auto_orient = st.checkbox(
+                "Auto-orient (Event → Decision → Result)",
+                value=True
+            )
+            reverse_dir = st.checkbox(
+                "Reverse direction",
+                value=False
+            )
+
             edge_label = st.text_input("Edge label (optional)")
             edge_prob_enabled = st.checkbox("Add probability")
             edge_prob = (
@@ -82,18 +110,39 @@ if len(graph["nodes"]) >= 2:
                 if edge_prob_enabled
                 else None
             )
-            if st.form_submit_button("Add Edge"):
-                if source == target:
+
+            submitted = st.form_submit_button("Add Edge")
+            if submitted:
+                src_kind = next(n["kind"] for n in graph["nodes"] if n["id"] == source)
+                tgt_kind = next(n["kind"] for n in graph["nodes"] if n["id"] == target)
+                _source, _target = source, target
+
+                # Auto-orient
+                if auto_orient and kind_rank(src_kind) > kind_rank(tgt_kind):
+                    _source, _target = target, source
+
+                # Reverse direction
+                if reverse_dir:
+                    _source, _target = _target, _source
+
+                if _source == _target:
                     st.warning("Cannot connect a node to itself.")
                 else:
-                    graph["edges"].append({
-                        "id": new_edge_id(),
-                        "source": source,
-                        "target": target,
-                        "label": edge_label or None,
-                        "data": {"prob": edge_prob} if edge_prob_enabled else {}
-                    })
-                    st.rerun()
+                    already_exists = any(
+                        e for e in graph["edges"]
+                        if e["source"] == _source and e["target"] == _target
+                    )
+                    if already_exists:
+                        st.warning("That edge already exists.")
+                    else:
+                        graph["edges"].append({
+                            "id": new_edge_id(),
+                            "source": _source,
+                            "target": _target,
+                            "label": edge_label or None,
+                            "data": {"prob": edge_prob} if edge_prob_enabled else {}
+                        })
+                        st.rerun()
 
 # ---------------------------
 # Validation Warnings
@@ -115,8 +164,8 @@ if show_debug:
 # Canvas Visualization
 # ---------------------------
 st.markdown("### Canvas")
-
-graph_json = json.dumps(graph)  # Safe JSON
+graph_json = json.dumps(graph)
+layout_mode = st.session_state.layout_mode
 
 vis_html = """
 <!DOCTYPE html>
@@ -173,9 +222,9 @@ vis_html = """
 
   <!-- Hidden JSON data -->
   <script id="graphData" type="application/json">{graph_json}</script>
-
   <script>
     const graph = JSON.parse(document.getElementById('graphData').textContent);
+    const layoutMode = "{layout_mode}";
 
     const nodes = new vis.DataSet(graph.nodes.map(n => ({
       id: n.id,
@@ -200,15 +249,33 @@ vis_html = """
 
     const container = document.getElementById('network');
     const data = { nodes, edges };
-    const options = {
-      physics: { enabled: true, stabilization: { iterations: 100 } },
-      edges: { arrows: { to: { enabled: true } }, smooth: false },
-      interaction: { dragView: true, zoomView: true }
-    };
+
+    const options = layoutMode === "Left→Right"
+      ? {
+          layout: {
+            hierarchical: {
+              enabled: true,
+              direction: "LR",
+              sortMethod: "directed",
+              levelSeparation: 200,
+              nodeSpacing: 150,
+              treeSpacing: 200
+            }
+          },
+          physics: false,
+          edges: { arrows: { to: { enabled: true } }, smooth: false },
+          interaction: { dragView: true, zoomView: true }
+        }
+      : {
+          layout: { hierarchical: false },
+          physics: { enabled: true, stabilization: { iterations: 100 } },
+          edges: { arrows: { to: { enabled: true } }, smooth: false },
+          interaction: { dragView: true, zoomView: true }
+        };
+
     const network = new vis.Network(container, data, options);
     network.fit();
 
-    // Zoom controls
     document.getElementById('zoomIn').addEventListener('click', () => {
       network.moveTo({ scale: network.getScale() * 1.2 });
     });
@@ -217,7 +284,6 @@ vis_html = """
     });
     document.getElementById('fit').addEventListener('click', () => network.fit());
 
-    // Export PNG
     document.getElementById('exportBtn').addEventListener('click', () => {
       html2canvas(container).then(canvas => {
         const link = document.createElement('a');
@@ -229,8 +295,8 @@ vis_html = """
   </script>
 </body>
 </html>
-""".replace("{graph_json}", graph_json)
+""".replace("{graph_json}", graph_json).replace("{layout_mode}", layout_mode)
 
-# Force canvas refresh by adding a unique comment
+# Cache-buster
 vis_html_with_ts = vis_html + f"<!-- {uuid.uuid4()} -->"
 components.html(vis_html_with_ts, height=650, scrolling=False)
